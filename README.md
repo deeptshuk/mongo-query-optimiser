@@ -18,6 +18,188 @@ An intelligent MongoDB performance analysis tool that identifies slow queries an
 - **Docker** (optional, for containerized setup)
 - **OpenRouter API Key** (for production LLM analysis)
 
+## 🐍 Virtual Environment Setup
+
+**⚠️ Important**: Always use a virtual environment for Python development to avoid dependency conflicts and maintain project isolation.
+
+### What is a Virtual Environment?
+
+A virtual environment is an isolated Python environment that allows you to:
+- Install packages specific to your project without affecting your system Python
+- Avoid conflicts between different projects' dependencies
+- Ensure consistent package versions across different machines
+- Easily reproduce your development environment
+
+### Creating and Managing Virtual Environments
+
+#### Option 1: Using `venv` (Built-in, Recommended)
+
+**Linux/macOS:**
+```bash
+# Navigate to your project directory
+cd mongo-query-optimiser
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Verify activation (you should see (venv) in your prompt)
+which python
+# Should output: /path/to/mongo-query-optimiser/venv/bin/python
+
+# Install project dependencies
+pip install -r requirements.txt
+
+# When done working, deactivate the environment
+deactivate
+```
+
+**Windows:**
+```cmd
+# Navigate to your project directory
+cd mongo-query-optimiser
+
+# Create a virtual environment
+python -m venv venv
+
+# Activate the virtual environment
+venv\Scripts\activate
+
+# Verify activation (you should see (venv) in your prompt)
+where python
+# Should output: C:\path\to\mongo-query-optimiser\venv\Scripts\python.exe
+
+# Install project dependencies
+pip install -r requirements.txt
+
+# When done working, deactivate the environment
+deactivate
+```
+
+#### Option 2: Using `virtualenv` (Third-party)
+
+If you prefer `virtualenv` or need Python 2.7 support:
+
+```bash
+# Install virtualenv (if not already installed)
+pip install virtualenv
+
+# Create virtual environment
+virtualenv venv
+
+# Activate (Linux/macOS)
+source venv/bin/activate
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Virtual Environment Best Practices
+
+1. **Always activate before working**:
+   ```bash
+   source venv/bin/activate  # Linux/macOS
+   venv\Scripts\activate     # Windows
+   ```
+
+2. **Verify you're in the virtual environment**:
+   - Your prompt should show `(venv)` prefix
+   - `which python` should point to the venv directory
+
+3. **Keep requirements.txt updated**:
+   ```bash
+   # After installing new packages
+   pip freeze > requirements.txt
+   ```
+
+4. **Never commit the virtual environment**:
+   - The `venv/` directory is already in `.gitignore`
+   - Virtual environments contain system-specific paths and binaries
+
+### Troubleshooting Virtual Environments
+
+#### Issue: "Command not found" errors
+**Solution**: Make sure you've activated the virtual environment:
+```bash
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate     # Windows
+```
+
+#### Issue: "Permission denied" on Windows
+**Solution**: Enable script execution in PowerShell:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+#### Issue: Python points to system Python
+**Solution**:
+1. Deactivate and reactivate the virtual environment
+2. Verify with `which python` (Linux/macOS) or `where python` (Windows)
+
+#### Issue: Packages not found after installation
+**Solution**:
+1. Ensure virtual environment is activated
+2. Reinstall packages: `pip install -r requirements.txt`
+
+#### Issue: Different Python version than expected
+**Solution**: Create virtual environment with specific Python version:
+```bash
+# Use specific Python version
+python3.11 -m venv venv
+# or
+virtualenv -p python3.11 venv
+```
+
+### Verification Steps
+
+After setting up your virtual environment, verify everything is working:
+
+#### Quick Manual Verification
+```bash
+# 1. Activate virtual environment
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate   # Windows
+
+# 2. Check Python location
+which python  # Should point to venv directory
+
+# 3. Check installed packages
+pip list
+
+# 4. Verify required packages are installed
+python -c "import pymongo, requests; print('Dependencies OK')"
+
+# 5. Test MongoDB connection (if MongoDB is running)
+python -c "from pymongo import MongoClient; print('MongoDB connection test:', MongoClient().admin.command('ping'))"
+```
+
+#### Automated Verification Script
+For a comprehensive environment check, use the included verification script:
+
+```bash
+# Activate virtual environment first
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate   # Windows
+
+# Run the verification script
+python verify_setup.py
+```
+
+This script will check:
+- ✅ Virtual environment activation
+- ✅ Python version compatibility
+- ✅ Required package installation
+- ✅ Project file structure
+- ✅ Git repository status
+- ✅ Environment variables
+
+The script provides detailed feedback and suggestions for fixing any issues found.
+
 ## 🛠️ Installation & Setup
 
 ### Option 1: Quick Start with Docker Compose (Recommended for Testing)
@@ -41,16 +223,41 @@ This will:
 
 ### Option 2: Manual Installation (Recommended for Production)
 
-#### Step 1: Install Python Dependencies
+#### Step 1: Set Up Virtual Environment and Install Dependencies
+
+**⚠️ Critical**: Always create a virtual environment before installing dependencies!
 
 ```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Navigate to project directory
+cd mongo-query-optimiser
 
-# Install dependencies
+# Create virtual environment (choose one method)
+python3 -m venv venv          # Linux/macOS
+# python -m venv venv         # Windows
+
+# Activate virtual environment
+source venv/bin/activate      # Linux/macOS
+# venv\Scripts\activate       # Windows
+
+# Verify virtual environment is active
+# You should see (venv) in your prompt
+which python                  # Linux/macOS - should point to venv/bin/python
+# where python                # Windows - should point to venv\Scripts\python.exe
+
+# Upgrade pip to latest version
+pip install --upgrade pip
+
+# Install project dependencies
 pip install -r requirements.txt
+
+# Verify installation
+python -c "import pymongo, requests; print('✅ All dependencies installed successfully!')"
 ```
+
+**Important Notes**:
+- The virtual environment directory (`venv/`) is excluded from version control
+- Each developer should create their own virtual environment locally
+- Always activate the virtual environment before running any Python commands
 
 #### Step 2: Set Up MongoDB
 
@@ -108,12 +315,18 @@ export OPENROUTER_API_URL="https://openrouter.ai/api/v1/chat/completions"  # Def
 Once your environment is set up, run the optimizer:
 
 ```bash
-# Activate virtual environment (if using manual setup)
-source venv/bin/activate
+# ALWAYS activate virtual environment first (if using manual setup)
+source venv/bin/activate      # Linux/macOS
+# venv\Scripts\activate       # Windows
+
+# Verify you're in the virtual environment (should see (venv) in prompt)
+which python                  # Should point to venv directory
 
 # Run the optimizer
 python mongo-optimiser-agent.py
 ```
+
+**💡 Pro Tip**: If you see import errors, make sure your virtual environment is activated!
 
 ### Using with Your Own Database
 
@@ -193,8 +406,12 @@ The project includes a seeding script to populate your database with sample data
 ### Using the Seed Script
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# ALWAYS activate virtual environment first
+source venv/bin/activate      # Linux/macOS
+# venv\Scripts\activate       # Windows
+
+# Verify virtual environment is active
+which python                  # Should point to venv directory
 
 # Set environment variables
 export MONGO_URI="mongodb://localhost:27017/"
@@ -253,8 +470,12 @@ For testing without using real API credits, the project includes a FastAPI-based
 ### Starting the Mock LLM Service
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# ALWAYS activate virtual environment first
+source venv/bin/activate      # Linux/macOS
+# venv\Scripts\activate       # Windows
+
+# Verify virtual environment is active
+which python                  # Should point to venv directory
 
 # Start the mock service
 cd llm_stub
@@ -310,7 +531,66 @@ db.setProfilingLevel(1, {
 
 ### Common Issues
 
-#### 1. "No slow queries found"
+#### 1. Virtual Environment Issues
+
+**Issue**: `ModuleNotFoundError` or `ImportError` when running scripts
+**Cause**: Virtual environment not activated or packages not installed in virtual environment.
+
+**Solutions**:
+```bash
+# Check if virtual environment is activated
+echo $VIRTUAL_ENV  # Should show path to venv directory
+
+# If not activated, activate it
+source venv/bin/activate      # Linux/macOS
+# venv\Scripts\activate       # Windows
+
+# Verify Python location
+which python                  # Should point to venv/bin/python
+
+# Reinstall dependencies if needed
+pip install -r requirements.txt
+
+# Test imports
+python -c "import pymongo, requests; print('✅ Dependencies OK')"
+```
+
+**Issue**: `pip: command not found` or packages install to system Python
+**Cause**: Virtual environment not properly activated.
+
+**Solutions**:
+```bash
+# Deactivate current environment
+deactivate
+
+# Remove and recreate virtual environment
+rm -rf venv
+python3 -m venv venv
+
+# Activate and install
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**Issue**: Permission errors when creating virtual environment
+**Cause**: Insufficient permissions or conflicting Python installations.
+
+**Solutions**:
+```bash
+# Linux/macOS: Check Python installation
+which python3
+python3 --version
+
+# Windows: Run as administrator or check execution policy
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Alternative: Use user directory
+python3 -m venv ~/.virtualenvs/mongo-optimizer
+source ~/.virtualenvs/mongo-optimizer/bin/activate
+```
+
+#### 2. "No slow queries found"
 
 **Cause**: No queries in `system.profile` collection or threshold too high.
 
@@ -320,7 +600,7 @@ db.setProfilingLevel(1, {
 - Generate some database activity
 - Check if `system.profile` collection exists: `db.system.profile.count()`
 
-#### 2. "Connection refused" or MongoDB connection errors
+#### 3. "Connection refused" or MongoDB connection errors
 
 **Cause**: MongoDB not running or incorrect connection string.
 
@@ -330,7 +610,7 @@ db.setProfilingLevel(1, {
 - Verify network connectivity and firewall settings
 - For Docker: ensure port 27017 is exposed
 
-#### 3. "OpenRouter API errors"
+#### 4. "OpenRouter API errors"
 
 **Cause**: Invalid API key or network issues.
 
@@ -340,7 +620,7 @@ db.setProfilingLevel(1, {
 - Use mock service for testing: set `OPENROUTER_API_URL=http://localhost:8080/api/v1/chat/completions`
 - Check network connectivity to OpenRouter
 
-#### 4. "Permission denied" errors
+#### 5. "Permission denied" errors
 
 **Cause**: Insufficient MongoDB permissions.
 
@@ -388,10 +668,15 @@ mongo-query-optimiser/
 ├── mongo-optimiser-agent.py  # Main entry point
 ├── seed_data.py              # Database seeding script
 ├── demo_optimizer.py         # Enhanced demo script
+├── verify_setup.py           # Environment verification script
+├── setup_production_db.py    # Production database setup wizard
 ├── docker-compose.yml        # Complete Docker setup
 ├── requirements.txt          # Python dependencies
+├── .gitignore                # Git ignore file (includes venv/)
 └── README.md                 # This file
 ```
+
+**Important**: The `venv/` directory (virtual environment) is **not** included in version control and should be created locally by each developer.
 
 ## 🎯 Example Output
 
