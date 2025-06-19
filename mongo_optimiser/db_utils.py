@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from .config import MONGO_MODE, MONGO_DB_NAME, build_mongo_uri
+from .config import MONGO_MODE, MONGO_DB_NAME, build_mongo_uri, EXCLUDE_OPERATIONS, ANALYSIS_TIME_WINDOW_MINUTES
 from .docker_utils import start_mongodb_container, is_docker_available
 
 # Global cache for collection metadata
@@ -76,7 +76,12 @@ def get_mongo_client() -> Optional[MongoClient]:
         return None
 
 
-def get_slow_queries(db: MongoClient, min_duration_ms: int = 100) -> List[Dict[str, Any]]:
+def get_slow_queries(
+    db: MongoClient,
+    min_duration_ms: int = 100,
+    exclude_operations: Optional[List[str]] = None,
+    time_window_minutes: int = 0
+) -> List[Dict[str, Any]]:
     profile_collection_name = "system.profile"
     if profile_collection_name not in db.list_collection_names():
         print(
@@ -87,8 +92,32 @@ def get_slow_queries(db: MongoClient, min_duration_ms: int = 100) -> List[Dict[s
 
     profile_collection = db.get_collection(profile_collection_name)
     try:
+        # Build query filter
+        query_filter = {"millis": {"$gte": min_duration_ms}}
+
+        # Include operations filter (exclude specified operations)
+        if exclude_operations is None:
+            exclude_operations = EXCLUDE_OPERATIONS
+
+        all_operations = ["query", "command", "update", "delete", "insert", "getmore"]
+        included_operations = [op for op in all_operations if op not in exclude_operations]
+
+        if included_operations:
+            query_filter["op"] = {"$in": included_operations}
+
+        # Add time window filter
+        if time_window_minutes > 0:
+            from datetime import datetime, timedelta
+            cutoff_time = datetime.now() - timedelta(minutes=time_window_minutes)
+            query_filter["ts"] = {"$gte": cutoff_time}
+
+        print(f"🔍 Query filter: {query_filter}")
+        print(f"📊 Excluded operations: {exclude_operations}")
+        if time_window_minutes > 0:
+            print(f"⏰ Time window: last {time_window_minutes} minutes")
+
         slow_queries = profile_collection.find(
-            {"op": {"$in": ["query", "command", "update", "delete", "insert", "getmore"]}, "millis": {"$gte": min_duration_ms}},
+            query_filter,
             projection={
                 "ns": 1,
                 "op": 1,
@@ -276,7 +305,15 @@ def get_explain_plan(db: MongoClient, collection_name: str, query_info: Dict[str
             return cursor.explain()
         if op_type == "command" and "aggregate" in query_info.get("command_details", {}):
             pipeline = query_info["command_details"].get("pipeline", [])
-            return collection.aggregate(pipeline, explain=True).next()
+            # Use database.command for explain with aggregation
+            explain_cmd = {
+                "explain": {
+                    "aggregate": collection_name,
+                    "pipeline": pipeline,
+                    "cursor": {}
+                }
+            }
+            return db.command(explain_cmd)
         if op_type in {"update", "delete"}:
             filter_doc = query_info.get("original_query_filter", {})
             if op_type == "update":

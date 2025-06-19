@@ -25,29 +25,60 @@ def build_llm_prompt(
         Formatted prompt string for the LLM
     """
     prompt_parts = [
-        "You are an expert MongoDB performance optimization assistant. Analyze the following slow MongoDB query and its context and provide actionable recommendations.",
-        "\n--- Slow Query Details ---",
+        "You are an expert MongoDB performance optimization assistant. Analyze the following slow MongoDB query and provide SPECIFIC, ACTIONABLE recommendations.",
+        "",
+        "=== SLOW QUERY ANALYSIS ===",
         f"Namespace: {slow_query.get('ns', 'N/A')}",
         f"Operation Type: {slow_query.get('op_type', 'N/A')}",
-        f"Duration (ms): {slow_query.get('duration_ms', 'N/A')}",
+        f"Duration: {slow_query.get('duration_ms', 'N/A')}ms",
         f"Timestamp: {slow_query.get('ts', 'N/A')}",
-        f"Number of Objects Scanned: {slow_query.get('nscannedObjects', 'N/A')}",
-        f"Number of Index Entries Scanned: {slow_query.get('nscanned', 'N/A')}",
-        "Original Query/Command Details:",
+        f"Objects Scanned: {slow_query.get('nscannedObjects', 'N/A')}",
+        f"Index Entries Scanned: {slow_query.get('nscanned', 'N/A')}",
+        f"Plan Summary: {slow_query.get('planSummary', 'N/A')}",
+        "",
+        "=== QUERY/COMMAND DETAILS ===",
         json.dumps({k: v for k, v in slow_query.items() if k.startswith('original_query_') or k == 'command_details'}, indent=2, default=str),
-        "\n--- Collection Schema Sample ---",
+        "",
+        "=== COLLECTION SCHEMA ===",
         json.dumps(schema, indent=2, default=str),
-        "\n--- Existing Indexes ---",
+        "",
+        "=== EXISTING INDEXES ===",
         json.dumps(indexes, indent=2, default=str),
-        "\n--- Explain Plan (executionStats) ---",
-        json.dumps(explain_plan, indent=2, default=str) if explain_plan else 'N/A',
-        "\n--- Recommendations ---",
-        "1. Index Recommendations",
-        "2. Query Rewrites",
-        "3. Data Model Advice",
-        "4. Other Performance Tips",
+        "",
+        "=== EXECUTION PLAN ===",
+        json.dumps(explain_plan, indent=2, default=str) if explain_plan else 'No execution plan available',
+        "",
+        "=== REQUIRED OUTPUT FORMAT ===",
+        "Provide specific, actionable recommendations in these categories:",
+        "",
+        "1. **Index Recommendations:**",
+        "   - Provide exact MongoDB commands: db.collection.createIndex({field: 1})",
+        "   - Explain why each index will help",
+        "   - Consider compound indexes for multi-field queries",
+        "",
+        "2. **Query Optimization:**",
+        "   - Suggest query rewrites with examples",
+        "   - Recommend projection, limits, or aggregation improvements",
+        "   - Identify inefficient patterns",
+        "",
+        "3. **Performance Impact:**",
+        "   - Estimate performance improvement percentage",
+        "   - Identify the root cause of slowness",
+        "",
+        "4. **Implementation Priority:**",
+        "   - Rank recommendations by impact (High/Medium/Low)",
+        "   - Suggest implementation order",
     ]
-    return "\n".join(prompt_parts)
+
+    prompt = "\n".join(prompt_parts)
+
+    # Log the prompt being sent
+    print(f"\n🔍 PROMPT BEING SENT TO LLM:")
+    print("=" * 80)
+    print(prompt)
+    print("=" * 80)
+
+    return prompt
 
 
 def get_llm_recommendation(prompt: str, model: str = LLM_MODEL) -> str:

@@ -1,7 +1,7 @@
 import json
 import sys
 
-from .config import MONGO_DB_NAME, MIN_DURATION_MS, MAX_QUERIES_TO_ANALYZE, validate_config
+from .config import MONGO_DB_NAME, MIN_DURATION_MS, MAX_QUERIES_TO_ANALYZE, EXCLUDE_OPERATIONS, ANALYSIS_TIME_WINDOW_MINUTES, validate_config
 from .db_utils import (
     get_mongo_client,
     get_slow_queries,
@@ -38,7 +38,12 @@ def run():
         print(f"🗄️  Targeting database: '{MONGO_DB_NAME}'")
 
         print(f"\n🔍 Extracting slow queries (min duration: {MIN_DURATION_MS}ms)...")
-        slow_queries = get_slow_queries(db, min_duration_ms=MIN_DURATION_MS)
+        slow_queries = get_slow_queries(
+            db,
+            min_duration_ms=MIN_DURATION_MS,
+            exclude_operations=EXCLUDE_OPERATIONS,
+            time_window_minutes=ANALYSIS_TIME_WINDOW_MINUTES
+        )
 
         if not slow_queries:
             print("❌ No slow queries found in system.profile.")
@@ -69,12 +74,47 @@ def run():
             print(f"🔧 Operation: {sq.get('op_type')}")
 
             # Get metadata (with caching)
+            print(f"\n📊 COLLECTING METADATA FOR LLM:")
+            print(f"   🔍 Getting schema for {collection_name}...")
             schema = get_collection_schema(db, collection_name)
+            print(f"   ✅ Schema: {len(schema)} fields - {list(schema.keys())[:5]}{'...' if len(schema) > 5 else ''}")
+
+            print(f"   🗂️  Getting indexes for {collection_name}...")
             indexes = get_collection_indexes(db, collection_name)
+            print(f"   ✅ Indexes: {len(indexes)} indexes")
+            for i, idx in enumerate(indexes):
+                print(f"      Index {i+1}: {idx.get('key', 'N/A')}")
+
+            print(f"   📋 Getting explain plan...")
             explain_plan = None if sq.get('op_type') == 'getmore' else get_explain_plan(db, collection_name, sq)
+            if explain_plan:
+                print(f"   ✅ Explain plan: Available ({len(str(explain_plan))} chars)")
+                # Show key execution stats if available
+                if 'executionStats' in explain_plan:
+                    stats = explain_plan['executionStats']
+                    print(f"      Execution time: {stats.get('executionTimeMillis', 'N/A')}ms")
+                    print(f"      Documents examined: {stats.get('totalDocsExamined', 'N/A')}")
+                    print(f"      Documents returned: {stats.get('totalDocsReturned', 'N/A')}")
+                    print(f"      Index hits: {stats.get('totalKeysExamined', 'N/A')}")
+            else:
+                print(f"   ⚠️  Explain plan: Not available for {sq.get('op_type')} operation")
+
+            # Show complete query details being sent to LLM
+            print(f"\n📝 QUERY DETAILS BEING ANALYZED:")
+            print(f"   Namespace: {sq.get('ns')}")
+            print(f"   Operation: {sq.get('op_type')}")
+            print(f"   Duration: {sq.get('duration_ms')}ms")
+            print(f"   Plan Summary: {sq.get('planSummary', 'N/A')}")
+
+            # Show original query/command if available
+            query_details = {k: v for k, v in sq.items() if k.startswith('original_query_') or k == 'command_details'}
+            if query_details:
+                print(f"   Query/Command Details:")
+                for key, value in query_details.items():
+                    print(f"      {key}: {str(value)[:100]}{'...' if len(str(value)) > 100 else ''}")
 
             # Generate recommendations
-            print(f"🤖 Generating AI recommendations...")
+            print(f"\n🤖 Generating AI recommendations...")
             prompt = build_llm_prompt(sq, schema, indexes, explain_plan)
             recommendation = get_llm_recommendation(prompt)
 

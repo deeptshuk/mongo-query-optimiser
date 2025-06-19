@@ -38,6 +38,8 @@ OPENROUTER_API_URL = os.getenv(
 # Analysis Configuration
 MIN_DURATION_MS = int(os.getenv("MIN_DURATION_MS", "100"))
 MAX_QUERIES_TO_ANALYZE = int(os.getenv("MAX_QUERIES_TO_ANALYZE", "10"))
+EXCLUDE_OPERATIONS = [op.strip() for op in os.getenv("EXCLUDE_OPERATIONS", "insert,getmore").split(",") if op.strip()]
+ANALYSIS_TIME_WINDOW_MINUTES = int(os.getenv("ANALYSIS_TIME_WINDOW_MINUTES", "60"))
 
 
 def build_mongo_uri() -> str:
