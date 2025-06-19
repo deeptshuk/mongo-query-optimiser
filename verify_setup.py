@@ -170,14 +170,16 @@ def check_git_status():
 def check_environment_variables():
     """Check for important environment variables."""
     print_header("Environment Variables Check")
-    
+
     env_vars = [
         ('MONGO_URI', 'MongoDB connection string', False),
         ('MONGO_DB_NAME', 'Target database name', False),
         ('OPENROUTER_API_KEY', 'OpenRouter API key', False),
         ('VIRTUAL_ENV', 'Virtual environment path', True)
     ]
-    
+
+    all_good = True
+
     for var_name, description, required in env_vars:
         value = os.environ.get(var_name)
         if value:
@@ -188,6 +190,10 @@ def check_environment_variables():
             status = not required  # If not required, it's OK if not set
             status_text = "Optional - not set" if not required else "Required but not set"
             print_check(f"{var_name} ({description})", status, status_text)
+            if required:
+                all_good = False
+
+    return all_good
 
 
 def main():
