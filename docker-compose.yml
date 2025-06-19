@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   mongo:
-    image: mongo:7
+    image: mongo:4.4
     command: ["mongod", "--profile", "2", "--slowms", "0", "--dbpath", "/data/db"]
     ports:
       - "27017:27017"
@@ -10,7 +10,7 @@ services:
   llm_stub:
     build: ./llm_stub
     ports:
-      - "8080:8080"
+      - "8081:8080"
   seed:
     build: .
     depends_on:
