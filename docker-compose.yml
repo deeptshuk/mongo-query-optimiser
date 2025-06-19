@@ -1,0 +1,36 @@
+version: '3.8'
+services:
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--profile", "2", "--slowms", "0", "--dbpath", "/data/db"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+  llm_stub:
+    build: ./llm_stub
+    ports:
+      - "8080:8080"
+  seed:
+    build: .
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: mongodb://mongo:27017/
+      MONGO_DB_NAME: testdb
+    command: ["python", "seed_data.py"]
+  optimiser:
+    build: .
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      llm_stub:
+        condition: service_started
+    environment:
+      MONGO_URI: mongodb://mongo:27017/
+      MONGO_DB_NAME: testdb
+      OPENROUTER_API_KEY: dummy
+      OPENROUTER_API_URL: http://llm_stub:8080/api/v1/chat/completions
+    command: ["python", "mongo-optimiser-agent.py"]
+volumes:
+  mongo-data:
