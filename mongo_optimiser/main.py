@@ -10,6 +10,8 @@ from .db_utils import (
     get_explain_plan,
     clear_metadata_cache,
     print_cache_stats,
+    group_similar_queries,
+    select_representative_query,
 )
 from .llm_utils import build_llm_prompt, get_llm_recommendation
 
@@ -50,18 +52,37 @@ def run():
             print("💡 Ensure profiling is enabled: db.setProfilingLevel(2, {slowms: 0})")
             return
 
-        # Limit queries if configured
-        total_queries = len(slow_queries)
-        if MAX_QUERIES_TO_ANALYZE > 0 and total_queries > MAX_QUERIES_TO_ANALYZE:
-            slow_queries = slow_queries[:MAX_QUERIES_TO_ANALYZE]
-            print(f"📊 Found {total_queries} queries, analyzing top {MAX_QUERIES_TO_ANALYZE}")
+        # Group similar queries to avoid redundant API calls
+        print(f"\n🔗 Grouping similar queries to optimize API usage...")
+        grouped_queries = group_similar_queries(slow_queries)
+
+        print(f"📊 Found {len(slow_queries)} total queries, grouped into {len(grouped_queries)} unique patterns")
+
+        # Select representative queries from each group
+        representative_queries = []
+        for signature, similar_queries in grouped_queries.items():
+            representative = select_representative_query(similar_queries)
+            representative_queries.append(representative)
+            if len(similar_queries) > 1:
+                print(f"   📋 Pattern {signature[:8]}... has {len(similar_queries)} similar queries (analyzing slowest: {representative['duration_ms']}ms)")
+
+        # Limit representative queries if configured
+        total_representatives = len(representative_queries)
+        if MAX_QUERIES_TO_ANALYZE > 0 and total_representatives > MAX_QUERIES_TO_ANALYZE:
+            representative_queries = representative_queries[:MAX_QUERIES_TO_ANALYZE]
+            print(f"📊 Analyzing top {MAX_QUERIES_TO_ANALYZE} representative queries out of {total_representatives}")
         else:
-            print(f"📊 Found {total_queries} slow queries, analyzing all")
+            print(f"📊 Analyzing all {total_representatives} representative queries")
 
         print(f"\n🔄 Starting analysis...")
 
-        for i, sq in enumerate(slow_queries):
-            print(f"\n{'='*15} Query {i+1}/{len(slow_queries)} {'='*15}")
+        for i, sq in enumerate(representative_queries):
+            group_info = sq.get('group_info', {})
+            similar_count = group_info.get('total_similar_queries', 1)
+
+            print(f"\n{'='*15} Query Pattern {i+1}/{len(representative_queries)} {'='*15}")
+            if similar_count > 1:
+                print(f"🔗 Represents {similar_count} similar queries (avg: {group_info.get('avg_duration_ms', 0):.1f}ms, max: {group_info.get('max_duration_ms', 0)}ms)")
 
             ns_parts = sq.get('ns', '').split('.', 1)
             if len(ns_parts) < 2:

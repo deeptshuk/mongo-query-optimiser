@@ -6,6 +6,7 @@ An intelligent MongoDB performance analysis tool that identifies slow queries an
 
 - **Automated Query Analysis**: Extracts slow queries from MongoDB's `system.profile` collection
 - **AI-Powered Recommendations**: Uses OpenRouter LLM APIs to generate intelligent optimization suggestions
+- **Smart Query Grouping**: Automatically groups similar queries to avoid redundant API calls and reduce costs
 - **Metadata Caching**: Efficient caching system to avoid redundant schema/index computations
 - **Local & Remote Support**: Automatic Docker container management for local testing or connect to remote MongoDB
 - **Enhanced Seed Data**: Realistic test data generator with multiple collections and slow query patterns
@@ -152,11 +153,16 @@ MONGO_DB_NAME=production_db
 🗄️  Targeting database: 'testdb'
 
 🔍 Extracting slow queries (min duration: 100ms)...
-📊 Found 15 queries, analyzing top 10
+🔗 Grouping similar queries to optimize API usage...
+📊 Found 23 total queries, grouped into 18 unique patterns
+   📋 Pattern 10922abc... has 4 similar queries (analyzing slowest: 5ms)
+   📋 Pattern 08b12aac... has 3 similar queries (analyzing slowest: 2ms)
+📊 Analyzing top 3 representative queries out of 18
 
 🔄 Starting analysis...
 
-=============== Query 1/10 ===============
+=============== Query Pattern 1/3 ===============
+🔗 Represents 4 similar queries (avg: 1.8ms, max: 5ms)
 📋 Collection: users
 ⏱️  Duration: 245ms
 🔧 Operation: query
@@ -330,11 +336,23 @@ mongo-query-optimiser/
 
 ## 🚀 Performance Features
 
+- **Smart Query Grouping**: Groups similar queries to reduce API calls by up to 90%
 - **Metadata Caching**: Avoids redundant schema/index computations
 - **Configurable Limits**: Control analysis scope with `MAX_QUERIES_TO_ANALYZE`
 - **Efficient Profiling**: Smart query extraction with proper filtering
 - **Batch Processing**: Optimized database operations
 - **Progress Tracking**: Clear feedback during analysis
+
+### Query Grouping Benefits
+
+The tool automatically identifies and groups structurally similar queries:
+
+- **Cost Reduction**: Significantly fewer API calls to LLM services
+- **Faster Analysis**: Less time waiting for API responses
+- **Better Insights**: Focus on unique query patterns rather than duplicates
+- **Impact Awareness**: Clear indication of how many queries each optimization affects
+
+For detailed information about query grouping, see [QUERY_GROUPING.md](QUERY_GROUPING.md).
 
 ## 🤝 Contributing
 

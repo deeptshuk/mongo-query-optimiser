@@ -24,6 +24,10 @@ def build_llm_prompt(
     Returns:
         Formatted prompt string for the LLM
     """
+    # Check if this is a representative query from a group
+    group_info = slow_query.get('group_info', {})
+    is_grouped = group_info.get('total_similar_queries', 1) > 1
+
     prompt_parts = [
         "You are an expert MongoDB performance optimization assistant. Analyze the following slow MongoDB query and provide SPECIFIC, ACTIONABLE recommendations.",
         "",
@@ -36,6 +40,19 @@ def build_llm_prompt(
         f"Index Entries Scanned: {slow_query.get('nscanned', 'N/A')}",
         f"Plan Summary: {slow_query.get('planSummary', 'N/A')}",
         "",
+    ]
+
+    # Add group information if this represents multiple similar queries
+    if is_grouped:
+        prompt_parts.extend([
+            "=== QUERY GROUP INFORMATION ===",
+            f"This query represents {group_info['total_similar_queries']} similar queries with the same structure.",
+            f"Duration range: {group_info['min_duration_ms']}ms - {group_info['max_duration_ms']}ms",
+            f"Average duration: {group_info['avg_duration_ms']:.1f}ms",
+            "Note: Optimizing this query pattern will improve performance for all similar queries.",
+            "",
+        ])
+    prompt_parts.extend([
         "=== QUERY/COMMAND DETAILS ===",
         json.dumps({k: v for k, v in slow_query.items() if k.startswith('original_query_') or k == 'command_details'}, indent=2, default=str),
         "",
@@ -64,11 +81,19 @@ def build_llm_prompt(
         "3. **Performance Impact:**",
         "   - Estimate performance improvement percentage",
         "   - Identify the root cause of slowness",
+    ])
+
+    if is_grouped:
+        prompt_parts.extend([
+            f"   - Consider that this optimization affects {group_info['total_similar_queries']} similar queries",
+        ])
+
+    prompt_parts.extend([
         "",
         "4. **Implementation Priority:**",
         "   - Rank recommendations by impact (High/Medium/Low)",
         "   - Suggest implementation order",
-    ]
+    ])
 
     prompt = "\n".join(prompt_parts)
 

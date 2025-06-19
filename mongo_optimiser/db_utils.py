@@ -1,6 +1,7 @@
 import json
 import sys
 import time
+import hashlib
 from typing import Any, Dict, List, Optional, Tuple
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
@@ -36,6 +37,141 @@ def print_cache_stats() -> None:
     """Print cache statistics."""
     stats = get_cache_stats()
     print(f"📊 Cache Stats: {stats['total_entries']} entries, {stats['collections_cached']} collections cached")
+
+
+def normalize_query_structure(query_obj: Any) -> Any:
+    """
+    Normalize a query object by replacing specific values with placeholders.
+    This helps group similar queries that differ only in variable values.
+
+    Args:
+        query_obj: The query object to normalize (can be dict, list, or primitive)
+
+    Returns:
+        Normalized query object with values replaced by type placeholders
+    """
+    if isinstance(query_obj, dict):
+        normalized = {}
+        for key, value in query_obj.items():
+            if key in ['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']:
+                # For comparison operators, replace values with type placeholders
+                if isinstance(value, (list, tuple)):
+                    # For $in/$nin arrays, use a placeholder based on first element type
+                    if value and len(value) > 0:
+                        first_type = type(value[0]).__name__
+                        normalized[key] = f"<{first_type}_array>"
+                    else:
+                        normalized[key] = "<empty_array>"
+                else:
+                    normalized[key] = f"<{type(value).__name__}>"
+            elif key in ['$regex', '$text', '$where']:
+                # For text-based operators, use generic placeholders
+                normalized[key] = f"<{key[1:]}_pattern>"
+            elif key in ['$exists', '$type', '$size']:
+                # Keep structural operators as-is since they define query structure
+                normalized[key] = value
+            elif key.startswith('$'):
+                # For other operators, recursively normalize
+                normalized[key] = normalize_query_structure(value)
+            else:
+                # For field names, recursively normalize the value
+                normalized[key] = normalize_query_structure(value)
+        return normalized
+    elif isinstance(query_obj, (list, tuple)):
+        return [normalize_query_structure(item) for item in query_obj]
+    else:
+        # For primitive values, replace with type placeholder
+        return f"<{type(query_obj).__name__}>"
+
+
+def get_query_signature(query_info: Dict[str, Any]) -> str:
+    """
+    Generate a unique signature for a query based on its structure.
+    Queries with the same signature are considered similar and can be grouped.
+
+    Args:
+        query_info: Dictionary containing query information
+
+    Returns:
+        String signature representing the query structure
+    """
+    # Extract the key components that define query structure
+    signature_components = {
+        'ns': query_info.get('ns'),
+        'op_type': query_info.get('op_type'),
+        'type': query_info.get('type')
+    }
+
+    # Normalize query components
+    if query_info.get('original_query_filter'):
+        signature_components['filter'] = normalize_query_structure(query_info['original_query_filter'])
+
+    if query_info.get('original_query_sort') or query_info.get('original_query_orderby'):
+        sort_obj = query_info.get('original_query_sort') or query_info.get('original_query_orderby')
+        signature_components['sort'] = normalize_query_structure(sort_obj)
+
+    if query_info.get('original_query_projection'):
+        signature_components['projection'] = normalize_query_structure(query_info['original_query_projection'])
+
+    if query_info.get('original_query_pipeline'):
+        signature_components['pipeline'] = normalize_query_structure(query_info['original_query_pipeline'])
+
+    if query_info.get('original_query_update'):
+        signature_components['update'] = normalize_query_structure(query_info['original_query_update'])
+
+    # Create a stable hash of the normalized structure
+    signature_json = json.dumps(signature_components, sort_keys=True, default=str)
+    return hashlib.md5(signature_json.encode()).hexdigest()
+
+
+def group_similar_queries(queries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Group queries by their structural similarity.
+
+    Args:
+        queries: List of query information dictionaries
+
+    Returns:
+        Dictionary mapping query signatures to lists of similar queries
+    """
+    grouped_queries: Dict[str, List[Dict[str, Any]]] = {}
+
+    for query in queries:
+        signature = get_query_signature(query)
+        if signature not in grouped_queries:
+            grouped_queries[signature] = []
+        grouped_queries[signature].append(query)
+
+    return grouped_queries
+
+
+def select_representative_query(similar_queries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Select the most representative query from a group of similar queries.
+    Currently selects the slowest query, but could be enhanced with other criteria.
+
+    Args:
+        similar_queries: List of similar queries
+
+    Returns:
+        The representative query from the group
+    """
+    if not similar_queries:
+        raise ValueError("Cannot select representative from empty query list")
+
+    # Select the query with the highest duration as the representative
+    representative = max(similar_queries, key=lambda q: q.get('duration_ms', 0))
+
+    # Add metadata about the group
+    representative['group_info'] = {
+        'total_similar_queries': len(similar_queries),
+        'min_duration_ms': min(q.get('duration_ms', 0) for q in similar_queries),
+        'max_duration_ms': max(q.get('duration_ms', 0) for q in similar_queries),
+        'avg_duration_ms': sum(q.get('duration_ms', 0) for q in similar_queries) / len(similar_queries),
+        'query_signatures': [get_query_signature(q) for q in similar_queries[:3]]  # Sample of signatures
+    }
+
+    return representative
 
 
 def get_mongo_client() -> Optional[MongoClient]:
