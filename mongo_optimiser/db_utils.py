@@ -1,23 +1,78 @@
 import json
 import sys
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from .config import MONGO_URI, MONGO_DB_NAME
+from .config import MONGO_MODE, MONGO_DB_NAME, build_mongo_uri
+from .docker_utils import start_mongodb_container, is_docker_available
+
+# Global cache for collection metadata
+_metadata_cache: Dict[str, Dict[str, Any]] = {}
 
 
-def get_mongo_client(uri: str = MONGO_URI) -> Optional[MongoClient]:
+def clear_metadata_cache() -> None:
+    """Clear the metadata cache."""
+    global _metadata_cache
+    _metadata_cache.clear()
+    print("🗑️  Metadata cache cleared")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get cache statistics."""
+    schema_entries = sum(1 for key in _metadata_cache.keys() if key.endswith('.schema'))
+    index_entries = sum(1 for key in _metadata_cache.keys() if key.endswith('.indexes'))
+
+    return {
+        "total_entries": len(_metadata_cache),
+        "schema_entries": schema_entries,
+        "index_entries": index_entries,
+        "collections_cached": schema_entries  # Assuming schema and indexes are cached together
+    }
+
+
+def print_cache_stats() -> None:
+    """Print cache statistics."""
+    stats = get_cache_stats()
+    print(f"📊 Cache Stats: {stats['total_entries']} entries, {stats['collections_cached']} collections cached")
+
+
+def get_mongo_client() -> Optional[MongoClient]:
+    """
+    Get MongoDB client with automatic local container management.
+
+    Returns:
+        MongoClient instance if successful, None otherwise
+    """
+    # Handle local mode - start Docker container if needed
+    if MONGO_MODE == "local":
+        print(f"🐳 Local mode: Managing MongoDB Docker container...")
+
+        if not is_docker_available():
+            print("❌ Docker is not available for local mode")
+            return None
+
+        if not start_mongodb_container():
+            print("❌ Failed to start MongoDB container")
+            return None
+
+    # Build connection URI
+    uri = build_mongo_uri()
+
     try:
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        print(f"🔗 Connecting to MongoDB ({MONGO_MODE} mode)...")
+        client = MongoClient(uri, serverSelectionTimeoutMS=10000)
         client.admin.command("ping")
-        print(f"Successfully connected to MongoDB: {uri}")
+        print(f"✅ Successfully connected to MongoDB")
         return client
     except ConnectionFailure as e:
-        print(f"Error connecting to MongoDB at {uri}: {e}", file=sys.stderr)
+        print(f"❌ Connection failed: {e}", file=sys.stderr)
+        if MONGO_MODE == "local":
+            print("💡 Try running: docker ps to check container status")
         return None
     except Exception as e:
-        print(f"Unexpected error connecting to MongoDB: {e}", file=sys.stderr)
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
         return None
 
 
@@ -88,6 +143,26 @@ def get_slow_queries(db: MongoClient, min_duration_ms: int = 100) -> List[Dict[s
 
 
 def get_collection_schema(db: MongoClient, collection_name: str, sample_size: int = 100) -> Dict[str, str]:
+    """
+    Get collection schema with caching support.
+
+    Args:
+        db: MongoDB database instance
+        collection_name: Name of the collection
+        sample_size: Number of documents to sample for schema analysis
+
+    Returns:
+        Dictionary mapping field names to their types
+    """
+    cache_key = f"{db.name}.{collection_name}.schema"
+
+    # Check cache first
+    if cache_key in _metadata_cache:
+        print(f"📋 Schema cache HIT for {collection_name}")
+        return _metadata_cache[cache_key]["data"]
+
+    print(f"📋 Schema cache MISS for {collection_name} - computing...")
+
     collection = db.get_collection(collection_name)
     if collection is None:
         print(f"Collection '{collection_name}' not found.", file=sys.stderr)
@@ -128,16 +203,51 @@ def get_collection_schema(db: MongoClient, collection_name: str, sample_size: in
                 schema[k] = t
             elif schema[k] != t and schema[k] != "mixed":
                 schema[k] = "mixed"
+
+    # Cache the result
+    _metadata_cache[cache_key] = {
+        "data": schema,
+        "timestamp": time.time()
+    }
+
     return schema
 
 
 def get_collection_indexes(db: MongoClient, collection_name: str) -> List[Dict[str, Any]]:
+    """
+    Get collection indexes with caching support.
+
+    Args:
+        db: MongoDB database instance
+        collection_name: Name of the collection
+
+    Returns:
+        List of index information dictionaries
+    """
+    cache_key = f"{db.name}.{collection_name}.indexes"
+
+    # Check cache first
+    if cache_key in _metadata_cache:
+        print(f"🗂️  Indexes cache HIT for {collection_name}")
+        return _metadata_cache[cache_key]["data"]
+
+    print(f"🗂️  Indexes cache MISS for {collection_name} - retrieving...")
+
     collection = db.get_collection(collection_name)
     if collection is None:
         print(f"Collection '{collection_name}' not found.", file=sys.stderr)
         return []
+
     try:
-        return list(collection.index_information().values())
+        indexes = list(collection.index_information().values())
+
+        # Cache the result
+        _metadata_cache[cache_key] = {
+            "data": indexes,
+            "timestamp": time.time()
+        }
+
+        return indexes
     except OperationFailure as e:
         print(f"Error retrieving indexes for '{collection_name}': {e}", file=sys.stderr)
         return []

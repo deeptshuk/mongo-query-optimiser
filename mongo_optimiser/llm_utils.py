@@ -1,12 +1,29 @@
 import json
 import sys
-from typing import Any
+from typing import Any, Dict, List, Optional
 import requests
 
 from .config import OPENROUTER_API_KEY, LLM_MODEL, OPENROUTER_API_URL
 
 
-def build_llm_prompt(slow_query: dict, schema: dict, indexes: list, explain_plan: dict | None) -> str:
+def build_llm_prompt(
+    slow_query: Dict[str, Any],
+    schema: Dict[str, str],
+    indexes: List[Dict[str, Any]],
+    explain_plan: Optional[Dict[str, Any]]
+) -> str:
+    """
+    Build a comprehensive prompt for the LLM with query context.
+
+    Args:
+        slow_query: Dictionary containing slow query information
+        schema: Collection schema mapping field names to types
+        indexes: List of index information dictionaries
+        explain_plan: Optional query execution plan
+
+    Returns:
+        Formatted prompt string for the LLM
+    """
     prompt_parts = [
         "You are an expert MongoDB performance optimization assistant. Analyze the following slow MongoDB query and its context and provide actionable recommendations.",
         "\n--- Slow Query Details ---",
@@ -34,22 +51,69 @@ def build_llm_prompt(slow_query: dict, schema: dict, indexes: list, explain_plan
 
 
 def get_llm_recommendation(prompt: str, model: str = LLM_MODEL) -> str:
-    if not OPENROUTER_API_KEY:
-        return "Error: OPENROUTER_API_KEY environment variable is not set."
+    """
+    Get optimization recommendations from OpenRouter LLM API.
 
-    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-    payload: dict[str, Any] = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    Args:
+        prompt: The formatted prompt containing query context
+        model: LLM model to use (defaults to configured model)
+
+    Returns:
+        String containing the LLM's optimization recommendations
+    """
+    if not OPENROUTER_API_KEY:
+        error_msg = "❌ OPENROUTER_API_KEY environment variable is not set"
+        print(error_msg, file=sys.stderr)
+        return error_msg
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2000,  # Limit response length
+        "temperature": 0.1   # Lower temperature for more focused responses
+    }
 
     try:
-        response = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=120)
+        print(f"🔗 Calling OpenRouter API with model: {model}")
+        response = requests.post(
+            OPENROUTER_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
         response.raise_for_status()
+
         data = response.json()
         if data and 'choices' in data and len(data['choices']) > 0:
-            return data['choices'][0]['message']['content']
-        return f"Unexpected response from LLM: {json.dumps(data, indent=2)}"
+            content = data['choices'][0]['message']['content']
+            print(f"✅ Received {len(content)} characters from LLM")
+            return content
+        else:
+            error_msg = f"❌ Unexpected API response format: {json.dumps(data, indent=2)}"
+            print(error_msg, file=sys.stderr)
+            return error_msg
+
+    except requests.exceptions.Timeout:
+        error_msg = "❌ OpenRouter API request timed out (120s)"
+        print(error_msg, file=sys.stderr)
+        return error_msg
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"❌ OpenRouter API HTTP error: {e.response.status_code} - {e.response.text}"
+        print(error_msg, file=sys.stderr)
+        return error_msg
     except requests.RequestException as e:
-        print(f"OpenRouter API Request Error: {e}", file=sys.stderr)
-        return "Failed to get LLM recommendations due to request error"
+        error_msg = f"❌ OpenRouter API request error: {e}"
+        print(error_msg, file=sys.stderr)
+        return error_msg
+    except json.JSONDecodeError as e:
+        error_msg = f"❌ Failed to parse API response as JSON: {e}"
+        print(error_msg, file=sys.stderr)
+        return error_msg
     except Exception as e:
-        print(f"Unexpected error from LLM request: {e}", file=sys.stderr)
-        return "Failed to get LLM recommendations"
+        error_msg = f"❌ Unexpected error calling LLM API: {e}"
+        print(error_msg, file=sys.stderr)
+        return error_msg

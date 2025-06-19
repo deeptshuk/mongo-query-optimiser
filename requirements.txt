@@ -1,4 +1,4 @@
 pymongo
 requests
-fastapi
-uvicorn
+python-dotenv
+docker
